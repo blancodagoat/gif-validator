@@ -5,10 +5,11 @@
  */
 
 import { classNameFactory } from "@api/Styles";
-import { Button } from "@components/Button";
+import { Button, TextButton } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
+import { classes } from "@utils/misc";
 import { ModalContent, ModalFooter, ModalHeader, ModalProps, ModalRoot, ModalSize, openModal } from "@utils/modal";
-import { useEffect, useMemo, useRef, useState } from "@webpack/common";
+import { Checkbox, Forms, ScrollerThin, Text, useEffect, useMemo, useRef, useState } from "@webpack/common";
 import type { ReactNode } from "react";
 
 import { Flogger, getFavoriteGifs, saveFavoriteGifs, settings, validateAll } from "..";
@@ -55,6 +56,106 @@ function describeReason(r: LiveResult): string {
     return "HTTP " + r.status;
 }
 
+function ModalTitleBlock({ subtitle }: { subtitle?: string; }) {
+    return (
+        <div className={cl("header")}>
+            <div className={cl("header-icon")} aria-hidden>GIF</div>
+            <div className={cl("header-text")}>
+                <Text variant="text-lg/semibold" className={cl("header-title")}>
+                    Favorite GIF Validator
+                </Text>
+                <Text variant="text-sm/normal" color="text-muted" className={cl("header-subtitle")}>
+                    {subtitle ?? "Check your saved GIFs and clean up broken links"}
+                </Text>
+            </div>
+        </div>
+    );
+}
+
+function StatCard({ label, value, tone }: { label: string; value: ReactNode; tone?: "default" | "positive" | "danger"; }) {
+    return (
+        <div className={cl("stat")}>
+            <Text variant="text-xs/semibold" color="text-muted" className={cl("stat-label")}>
+                {label}
+            </Text>
+            <Text
+                tag="div"
+                variant="text-lg/semibold"
+                className={classes(
+                    cl("stat-value"),
+                    tone === "positive" && cl("stat-value-positive"),
+                    tone === "danger" && cl("stat-value-danger"),
+                )}
+            >
+                {value}
+            </Text>
+        </div>
+    );
+}
+
+function EmptyState({ icon, title, children }: { icon: string; title: string; children: ReactNode; }) {
+    return (
+        <div className={cl("empty")}>
+            <div className={cl("empty-icon")} aria-hidden>{icon}</div>
+            <Text variant="text-lg/semibold" className={cl("empty-title")}>{title}</Text>
+            <Text variant="text-md/normal" color="text-muted" className={cl("empty-text")}>{children}</Text>
+        </div>
+    );
+}
+
+function GifRow({ result: r, showBadge, checkbox, muted }: {
+    result: LiveResult;
+    showBadge?: boolean;
+    checkbox?: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; };
+    muted?: boolean;
+}) {
+    const url = r.gif.src ?? r.gif.url ?? r.key;
+    const reason = !r.valid ? describeReason(r) : null;
+
+    return (
+        <div
+            className={classes(
+                cl("row"),
+                r.valid ? cl("row-valid") : cl("row-broken"),
+                muted && cl("row-muted"),
+            )}
+        >
+            {checkbox && (
+                <div className={cl("row-check")}>
+                    <Checkbox
+                        value={checkbox.checked}
+                        disabled={checkbox.disabled}
+                        onChange={() => checkbox.onChange(!checkbox.checked)}
+                    />
+                </div>
+            )}
+            <div className={cl("thumb-wrap")}>
+                <img
+                    className={cl("thumb")}
+                    src={r.gif.src}
+                    loading="lazy"
+                    width={56}
+                    height={56}
+                    alt=""
+                />
+            </div>
+            <div className={cl("meta")}>
+                <div className={cl("meta-top")}>
+                    {showBadge && (
+                        <span className={classes(cl("badge"), r.valid ? cl("badge-valid") : cl("badge-broken"))}>
+                            {r.valid ? "Valid" : "Broken"}
+                        </span>
+                    )}
+                    {reason && <span className={cl("reason")}>{reason}</span>}
+                </div>
+                <span className={cl("url")} title={url}>
+                    <Text variant="text-xs/normal" color="text-muted">{url}</Text>
+                </span>
+            </div>
+        </div>
+    );
+}
+
 function ValidatorModalInner({ modalProps }: { modalProps: ModalProps; }) {
     const snapshot = useMemo(() => getFavoriteGifs(), []);
     const originalGifs = snapshot?.gifs ?? null;
@@ -68,7 +169,6 @@ function ValidatorModalInner({ modalProps }: { modalProps: ModalProps; }) {
     const abortRef = useRef<AbortController | null>(null);
     const [showValidToo, setShowValidToo] = useState(false);
 
-    // On unmount: abort any in-flight validation.
     useEffect(() => {
         return () => {
             abortRef.current?.abort();
@@ -84,7 +184,6 @@ function ValidatorModalInner({ modalProps }: { modalProps: ModalProps; }) {
         const controller = new AbortController();
         abortRef.current = controller;
 
-        // Capture mutable accumulator to build results / live list outside React state.
         const liveAcc: LiveResult[] = [];
 
         setState({
@@ -121,7 +220,6 @@ function ValidatorModalInner({ modalProps }: { modalProps: ModalProps; }) {
                 };
             }
 
-            // newest first
             liveAcc.unshift(live);
             setState(prev => {
                 if (prev.kind !== "running") return prev;
@@ -136,11 +234,8 @@ function ValidatorModalInner({ modalProps }: { modalProps: ModalProps; }) {
 
         validateAll(originalGifs, onProgress, controller.signal)
             .then(() => {
-                // Use the live accumulator (which we've built incrementally) as the source of truth.
-                // It already reflects every progress event, including ones that fired after abort.
                 const resolved: ResolvedGif[] = liveAcc
                     .slice()
-                    // Display order: broken first, then valid; within each, keep arrival order (newest first already).
                     .sort((a, b) => Number(a.valid) - Number(b.valid))
                     .map(r => ({ ...r, selected: !r.valid }));
 
@@ -184,14 +279,12 @@ function ValidatorModalInner({ modalProps }: { modalProps: ModalProps; }) {
 
         setState({ ...state, saving: true, saveError: undefined });
 
-        // Shallow-copy each retained entry so we never mutate the live store.
         const newGifs: FavoriteGifList = {};
         for (const [key, gif] of Object.entries(originalGifs)) {
             if (toRemove.includes(key)) continue;
             newGifs[key] = { ...gif };
         }
 
-        // Re-number `order` on the survivors based on existing order.
         Object.values(newGifs)
             .sort((a, b) => a.order - b.order)
             .forEach((g, i) => { g.order = i; });
@@ -215,84 +308,54 @@ function ValidatorModalInner({ modalProps }: { modalProps: ModalProps; }) {
         }
     };
 
-    // ---------- render branches ----------
-
-    const renderRow = (r: LiveResult, opts: {
-        showPill?: boolean;
-        checkbox?: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; };
-        muted?: boolean;
-    }) => {
-        const url = r.gif.src ?? r.gif.url ?? r.key;
-        const reason = !r.valid ? describeReason(r) : null;
-
-        return (
-            <div
-                key={r.key}
-                className={cl("row")}
-                style={opts.muted ? { opacity: 0.6 } : undefined}
-            >
-                {opts.checkbox && (
-                    <input
-                        type="checkbox"
-                        checked={opts.checkbox.checked}
-                        disabled={opts.checkbox.disabled}
-                        onChange={ev => opts.checkbox!.onChange(ev.currentTarget.checked)}
-                    />
-                )}
-                <img
-                    className={cl("thumb")}
-                    src={r.gif.src}
-                    loading="lazy"
-                    width={60}
-                    height={60}
-                    alt=""
-                />
-                <div className={cl("meta")}>
-                    {opts.showPill && (
-                        r.valid
-                            ? <span className={cl("pill-valid")}>{"✔ valid"}</span>
-                            : <span className={cl("pill-broken")}>{"✘ broken"}</span>
-                    )}
-                    {reason && <span className={cl("reason")}>{reason}</span>}
-                    <span className={cl("url")} title={url}>{url}</span>
-                </div>
-            </div>
-        );
-    };
-
+    let headerSubtitle: string | undefined;
     let body: ReactNode;
     let footer: ReactNode;
 
     if (!snapshot) {
+        headerSubtitle = "Unable to load favorites";
         body = (
-            <div className={cl("empty")}>
-                Couldn&apos;t read favorite GIFs from Discord. Are you signed in?
-            </div>
+            <EmptyState icon="!" title={"Couldn't read favorites"}>
+                Discord&apos;s favorite GIF store isn&apos;t available right now. Make sure you&apos;re signed in and try again.
+            </EmptyState>
         );
-        footer = (
-            <Button onClick={modalProps.onClose}>Close</Button>
-        );
+        footer = <Button onClick={modalProps.onClose}>Close</Button>;
     } else if (state.kind === "idle" && state.gifCount === 0) {
+        headerSubtitle = "No favorites yet";
         body = (
-            <div className={cl("empty")}>
-                You have no favorite GIFs.
-            </div>
+            <EmptyState icon="☆" title="No favorite GIFs">
+                Star GIFs in the picker and they&apos;ll show up here for validation.
+            </EmptyState>
         );
-        footer = (
-            <Button onClick={modalProps.onClose}>Close</Button>
-        );
+        footer = <Button onClick={modalProps.onClose}>Close</Button>;
     } else if (state.kind === "idle") {
         const concurrency = settings.store.concurrency;
+        const timeoutSec = settings.store.timeoutMs / 1000;
+        headerSubtitle = `${state.gifCount} favorites ready to scan`;
+
         body = (
-            <div>
-                <p>
-                    This tool checks each of your favorite GIFs to see if it still loads,
-                    then lets you remove any that are broken (404, timeout, wrong content type, etc.).
-                </p>
-                <p>
-                    You have <strong>{state.gifCount}</strong> favorite GIFs.
-                    Will check {concurrency} at a time.
-                </p>
+            <div className={cl("content")}>
+                <div className={cl("stats")}>
+                    <StatCard label="Favorites" value={state.gifCount} />
+                    <StatCard label="Parallel" value={concurrency} />
+                    <StatCard label="Timeout" value={`${timeoutSec}s`} />
+                </div>
+
+                <div className={cl("panel")}>
+                    <Forms.FormTitle tag="h5">What this does</Forms.FormTitle>
+                    <Text variant="text-md/normal" color="text-muted" className={cl("panel-muted")}>
+                        Each favorite gets a quick HEAD request (with GET fallback) to confirm the URL still responds.
+                        Broken links — 404s, timeouts, wrong content types — can be bulk-removed afterward.
+                    </Text>
+                    <Text variant="text-md/normal" color="text-muted" className={cl("panel-muted")}>
+                        Up to <strong>{concurrency}</strong> GIFs are checked at once with a{" "}
+                        <strong>{timeoutSec}s</strong> timeout each. When one finishes, the next starts immediately.
+                    </Text>
+                </div>
+
+                <Text variant="text-sm/normal" className={classes(cl("banner"), cl("banner-warn"))}>
+                    Tenor sometimes returns a placeholder image instead of a real 404. Review the list before removing if you&apos;re unsure.
+                </Text>
             </div>
         );
         footer = (
@@ -303,119 +366,164 @@ function ValidatorModalInner({ modalProps }: { modalProps: ModalProps; }) {
         );
     } else if (state.kind === "running") {
         const pct = state.total === 0 ? 0 : Math.round((state.completed / state.total) * 100);
+        const brokenSoFar = state.live.filter(r => !r.valid).length;
+        headerSubtitle = `Scanning ${state.completed} of ${state.total}`;
+
         body = (
-            <div>
-                <div className={cl("progress")}>
-                    <div
-                        className={cl("progress-fill")}
-                        style={{ width: `${pct}%` }}
-                    />
+            <div className={cl("content")}>
+                <div className={cl("panel")}>
+                    <div className={cl("progress-panel")}>
+                        <div className={cl("progress-head")}>
+                            <div>
+                                <Text variant="text-sm/semibold" className={cl("progress-label")}>
+                                    Validation in progress
+                                </Text>
+                                <Text variant="text-sm/normal" color="text-muted" className={cl("progress-meta")}>
+                                    {state.completed} of {state.total} checked
+                                    {brokenSoFar > 0 && ` · ${brokenSoFar} broken so far`}
+                                </Text>
+                            </div>
+                            <span className={cl("progress-pct")}>{pct}%</span>
+                        </div>
+                        <div className={classes(cl("progress-track"), cl("progress-track-active"))}>
+                            <div className={cl("progress-fill")} style={{ width: `${pct}%` }} />
+                        </div>
+                    </div>
                 </div>
-                <p className={cl("summary")}>
-                    Checking {state.completed} of {state.total}&hellip;
-                </p>
-                <div className={cl("row-list")}>
-                    {state.live.map(r => renderRow(r, { showPill: true }))}
-                </div>
+
+                {state.live.length > 0 ? (
+                    <>
+                        <Text variant="text-xs/semibold" color="text-muted" className={cl("section-title")}>
+                            Live results
+                        </Text>
+                        <ScrollerThin className={cl("row-list")} fade={true}>
+                            {state.live.map(r => (
+                                <GifRow key={r.key} result={r} showBadge />
+                            ))}
+                        </ScrollerThin>
+                    </>
+                ) : (
+                    <Text variant="text-sm/normal" className={classes(cl("banner"), cl("banner-info"))}>
+                        Starting parallel checks&hellip;
+                    </Text>
+                )}
             </div>
         );
         footer = (
-            <Button variant="dangerPrimary" onClick={state.abort}>Cancel</Button>
+            <Button variant="dangerPrimary" onClick={state.abort}>Stop Scan</Button>
         );
     } else if (state.kind === "done" && state.savedSuccess) {
+        headerSubtitle = "Cleanup complete";
         body = (
-            <div className={cl("empty")}>
-                Removed selected GIFs successfully.
+            <div className={cl("content")}>
+                <div className={cl("empty")}>
+                    <div className={cl("success-icon")} aria-hidden>✓</div>
+                    <Text variant="text-lg/semibold" className={cl("empty-title")}>Removed successfully</Text>
+                    <Text variant="text-md/normal" color="text-muted" className={cl("empty-text")}>
+                        Selected broken GIFs were removed from your favorites. Discord will sync the change automatically.
+                    </Text>
+                </div>
             </div>
         );
-        footer = (
-            <Button onClick={modalProps.onClose}>Close</Button>
-        );
+        footer = <Button onClick={modalProps.onClose}>Close</Button>;
     } else {
-        // done state
         const broken = state.results.filter(r => !r.valid);
         const valid = state.results.filter(r => r.valid);
         const selectedCount = broken.filter(r => r.selected).length;
+        headerSubtitle = broken.length === 0
+            ? "All favorites look healthy"
+            : `${broken.length} broken · ${valid.length} valid`;
 
         body = (
-            <div>
-                <p className={cl("summary")}>
-                    Found <strong>{broken.length}</strong> broken GIFs out of <strong>{state.results.length}</strong>.
-                </p>
+            <div className={cl("content")}>
+                <div className={cl("stats")}>
+                    <StatCard label="Broken" value={broken.length} tone={broken.length > 0 ? "danger" : "default"} />
+                    <StatCard label="Valid" value={valid.length} tone="positive" />
+                    <StatCard label="Total" value={state.results.length} />
+                </div>
 
                 {state.saveError && (
-                    <div className={cl("empty")}>
+                    <Text variant="text-sm/normal" className={classes(cl("banner"), cl("banner-error"))}>
                         {state.saveError}
-                    </div>
+                    </Text>
                 )}
 
-                {broken.length > 0 && (
+                {broken.length === 0 ? (
+                    <Text variant="text-sm/normal" className={classes(cl("banner"), cl("banner-info"))}>
+                        Every favorite responded successfully. Nothing to remove.
+                    </Text>
+                ) : (
                     <>
-                        <div className={cl("actions")}>
-                            <a
-                                href="#"
-                                className={cl("link")}
-                                onClick={e => { e.preventDefault(); setAllSelected(true); }}
-                            >Select All</a>
-                            {" · "}
-                            <a
-                                href="#"
-                                className={cl("link")}
-                                onClick={e => { e.preventDefault(); setAllSelected(false); }}
-                            >Deselect All</a>
-                            {" · "}
-                            <a
-                                href="#"
-                                className={cl("link")}
-                                onClick={e => { e.preventDefault(); setShowValidToo(v => !v); }}
-                            >{showValidToo ? "Hide valid GIFs" : "Show valid GIFs too"}</a>
+                        <div className={cl("toolbar")}>
+                            <TextButton variant="primary" onClick={() => setAllSelected(true)}>Select all</TextButton>
+                            <TextButton variant="secondary" onClick={() => setAllSelected(false)}>Deselect all</TextButton>
+                            <span className={cl("toolbar-divider")} />
+                            <TextButton variant="link" onClick={() => setShowValidToo(v => !v)}>
+                                {showValidToo ? "Hide valid GIFs" : `Show valid (${valid.length})`}
+                            </TextButton>
                         </div>
-                        <div className={cl("row-list")}>
-                            {broken.map(r => renderRow(r, {
-                                checkbox: {
-                                    checked: r.selected,
-                                    disabled: state.saving,
-                                    onChange: v => setSelected(r.key, v)
-                                }
-                            }))}
-                        </div>
+
+                        <Text variant="text-xs/semibold" color="text-muted" className={cl("section-title")}>
+                            Broken favorites
+                        </Text>
+                        <ScrollerThin className={cl("row-list")} fade={true}>
+                            {broken.map(r => (
+                                <GifRow
+                                    key={r.key}
+                                    result={r}
+                                    checkbox={{
+                                        checked: r.selected,
+                                        disabled: state.saving,
+                                        onChange: v => setSelected(r.key, v)
+                                    }}
+                                />
+                            ))}
+                        </ScrollerThin>
                     </>
                 )}
 
                 {showValidToo && valid.length > 0 && (
-                    <div>
-                        <p className={cl("summary")}>Valid GIFs ({valid.length})</p>
-                        <div className={cl("row-list")}>
-                            {valid.map(r => renderRow(r, { showPill: true, muted: true }))}
-                        </div>
-                    </div>
+                    <>
+                        <Text variant="text-xs/semibold" color="text-muted" className={cl("section-title")}>
+                            Valid favorites ({valid.length})
+                        </Text>
+                        <ScrollerThin className={cl("row-list")} fade={true}>
+                            {valid.map(r => (
+                                <GifRow key={r.key} result={r} showBadge muted />
+                            ))}
+                        </ScrollerThin>
+                    </>
                 )}
             </div>
         );
 
         footer = (
             <>
-                <Button
-                    variant="dangerPrimary"
-                    disabled={state.saving || selectedCount === 0}
-                    onClick={removeSelected}
-                >
-                    {state.saving ? "Removing…" : `Remove Selected (${selectedCount})`}
+                {broken.length > 0 && (
+                    <Button
+                        variant="dangerPrimary"
+                        disabled={state.saving || selectedCount === 0}
+                        onClick={removeSelected}
+                    >
+                        {state.saving ? "Removing…" : `Remove Selected (${selectedCount})`}
+                    </Button>
+                )}
+                <Button variant="secondary" onClick={modalProps.onClose}>
+                    {broken.length > 0 ? "Cancel" : "Close"}
                 </Button>
-                <Button variant="secondary" onClick={modalProps.onClose}>Cancel</Button>
             </>
         );
     }
 
     return (
-        <ModalRoot {...modalProps} size={ModalSize.LARGE}>
+        <ModalRoot {...modalProps} size={ModalSize.LARGE} className={cl("root")}>
             <ModalHeader>
-                <h2 style={{ margin: 0 }}>Favorite GIF Validator</h2>
+                <ModalTitleBlock subtitle={headerSubtitle} />
             </ModalHeader>
-            <ModalContent className={cl("modal")}>
+            <ModalContent>
                 {body}
             </ModalContent>
-            <ModalFooter>
+            <ModalFooter className={cl("footer")}>
                 {footer}
             </ModalFooter>
         </ModalRoot>

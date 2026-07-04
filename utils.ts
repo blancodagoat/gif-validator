@@ -30,7 +30,7 @@ export async function runWithConcurrency<T>(
     const total = tasks.length;
     if (total === 0) return results;
 
-    const cap = Math.max(1, Math.min(Number.isFinite(concurrency) ? concurrency : 1, 8));
+    const cap = Math.max(1, Math.min(Number.isFinite(concurrency) ? concurrency : 1, 10));
 
     let nextIndex = 0;
     let completed = 0;

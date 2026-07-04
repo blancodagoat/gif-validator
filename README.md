@@ -12,14 +12,14 @@ A Vencord userplugin that validates your Discord favorite GIFs and lets you remo
 
 It reads `favoriteGifs.gifs` from Discord's in-memory `FrecencyUserSettings` proto store via `UserSettingsActionCreators.FrecencyUserSettingsActionCreators.getCurrentValue()`.
 
-For each GIF, it makes a HEAD request from Vencord's main process so CORS does not block it. 405 responses fall back to `GET` with `Range: bytes=0-0`. The default per-request timeout is 8000ms.
+For each GIF, it makes a HEAD request from Vencord's main process so CORS does not block it. 405 responses fall back to `GET` with `Range: bytes=0-0`. Checks run in a worker pool (default 6 at a time, up to 10): as soon as one finishes, the next GIF starts while others keep running. The default per-request timeout is 15000ms.
 
 On save, it builds a partial proto via `fromBinary(toBinary(current))`, replaces `favoriteGifs.gifs` with the filtered map (with `order` re-numbered 0..n-1), and dispatches `USER_SETTINGS_PROTO_UPDATE` with `type: 2`. Discord's normal sync writes the change upstream; the plugin never calls the REST API directly.
 
 ## Settings
 
-- `concurrency` (default 2): how many GIFs are validated in parallel; clamped to 8 in the limiter.
-- `timeoutMs` (default 8000): per-request timeout in milliseconds.
+- `concurrency` (default 6): how many GIFs are validated in parallel; clamped to 10 in the limiter.
+- `timeoutMs` (default 15000): per-request timeout in milliseconds.
 - `requireImageOrVideoContentType` (default true): require the response Content-Type to start with `image/` or `video/`.
 - `treatRedirectsAsValid` (default true, informational): the native bridge follows redirects automatically.
 
