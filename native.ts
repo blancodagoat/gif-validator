@@ -7,7 +7,7 @@
 import type { IpcMainInvokeEvent } from "electron";
 
 const USER_AGENT = "Mozilla/5.0 (compatible; Vencord-GifValidator)";
-const DEFAULT_TIMEOUT_MS = 8000;
+const DEFAULT_TIMEOUT_MS = 15000;
 
 export interface GifValidationResponse {
     ok: boolean;

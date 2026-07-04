@@ -60,13 +60,13 @@ export const Native: PluginNative<typeof import("./native")> = (() => {
 export const settings = definePluginSettings({
     concurrency: {
         type: OptionType.NUMBER,
-        default: 2,
-        description: "How many GIFs to validate at once. Higher values are faster but may trigger Tenor/Discord rate limits. Capped at 8."
+        default: 6,
+        description: "How many GIFs to validate at once. As each check finishes, the next GIF starts immediately. Higher values are faster but may trigger Tenor/Discord rate limits. Capped at 10."
     },
     timeoutMs: {
         type: OptionType.NUMBER,
-        default: 8000,
-        description: "Per-request timeout in milliseconds before treating a GIF as broken."
+        default: 15000,
+        description: "Per-request timeout in milliseconds before treating a GIF as broken. Slow hosts may need 15000–30000."
     },
     treatRedirectsAsValid: {
         type: OptionType.BOOLEAN,
